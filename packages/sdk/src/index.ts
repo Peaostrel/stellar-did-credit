@@ -42,6 +42,10 @@ export interface ScoringWeights {
   txWeight: number;
   repaymentWeight: number;
 }
+export interface PendingWeights {
+  weights: ScoringWeights;
+  effectiveLedger: number;
+}
 export interface RecencyDecayConfig {
   enabled: boolean;
   decayBpsPerDay: number;
@@ -1662,6 +1666,70 @@ export class StellarDIDCreditSDK {
     }
 
     return parseScoringWeights(resultScVal);
+  }
+
+  /**
+   * Fetch scoring weights queued for activation on the credit-oracle.
+   *
+   * Uses a read-only simulation (no signing required).
+   *
+   * @returns Pending weights and their effective ledger, or null when none exist
+   */
+  async getPendingWeights(): Promise<PendingWeights | null> {
+    const server = this.server;
+    const contract = new Contract(this.config.creditOracleId);
+    const sourceAccount = new Account(this.config.simAccount, "0");
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(contract.call("get_pending_weights"))
+      .setTimeout(30)
+      .build();
+
+    const sim = await server.simulateTransaction(tx);
+
+    if (SorobanRpc.Api.isSimulationError(sim)) {
+      throwContractError(sim.error, "credit-oracle");
+    }
+
+    if (!SorobanRpc.Api.isSimulationSuccess(sim)) {
+      throw new Error("Simulation returned unexpected response");
+    }
+
+    const resultScVal = sim.result?.retval;
+    if (!resultScVal) {
+      throw new Error("No return value in simulation result");
+    }
+
+    const native = scValToNative(resultScVal);
+    if (native === null || native === undefined) {
+      return null;
+    }
+    if (typeof native !== "object") {
+      throw new Error("get_pending_weights returned an invalid result");
+    }
+
+    const raw = native as Record<string, unknown>;
+    const rawWeights = raw["weights"];
+    if (
+      rawWeights === null ||
+      rawWeights === undefined ||
+      typeof rawWeights !== "object"
+    ) {
+      throw new Error("get_pending_weights returned invalid weights");
+    }
+    const weights = rawWeights as Record<string, unknown>;
+
+    return {
+      weights: {
+        vcWeight: Number(weights["vc_weight"]),
+        txWeight: Number(weights["tx_weight"]),
+        repaymentWeight: Number(weights["repayment_weight"]),
+      },
+      effectiveLedger: Number(raw["effective_ledger"]),
+    };
   }
 
   /**

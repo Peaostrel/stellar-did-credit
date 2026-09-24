@@ -1694,6 +1694,49 @@ describe("StellarDIDCreditSDK", () => {
     });
   });
 
+  describe("getPendingWeights", () => {
+    it("returns pending scoring weights and their effective ledger", async () => {
+      mockSimulateTransaction.mockResolvedValue({
+        result: {
+          retval: {
+            value: {
+              weights: {
+                vc_weight: 45,
+                tx_weight: 30,
+                repayment_weight: 25,
+              },
+              effective_ledger: 1_234_567,
+            },
+          },
+        },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+      const result = await sdk.getPendingWeights();
+
+      expect(result).toEqual({
+        weights: {
+          vcWeight: 45,
+          txWeight: 30,
+          repaymentWeight: 25,
+        },
+        effectiveLedger: 1_234_567,
+      });
+      expect(mockLastContractCall?.method).toBe("get_pending_weights");
+    });
+
+    it("returns null when no pending weights exist", async () => {
+      mockSimulateTransaction.mockResolvedValue({
+        result: { retval: { value: null } },
+      });
+
+      const sdk = new StellarDIDCreditSDK(mockConfig);
+
+      await expect(sdk.getPendingWeights()).resolves.toBeNull();
+      expect(mockLastContractCall?.method).toBe("get_pending_weights");
+    });
+  });
+
   describe("getIdentityProtocolStats", () => {
     it("returns identity protocol counters", async () => {
       mockSimulateTransaction.mockResolvedValue({
